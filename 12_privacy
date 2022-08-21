@@ -1,0 +1,175 @@
+------------------
+NOTES
+------------------
+
+LEVEL 12: Privacy
+------------------
+
+Vulnerability - all storage on the blockchain
+- This is less of a vulnerability and more of an exercise in solidity internals
+- How storage works in solidity
+	- Note, storage is also covered in "8_vault", so some topics may be repeated
+	- "Storage" in solidity refers to the variables of a contract stored on the
+		blockchain
+	- Storage is stored in 32 byte long "slots"
+	- As variables get declared, they will be added into slots in order
+	- Optimization
+		- The EVM will optimize storage of variables to reduce gas costs
+		- The EVM will smash variables together into one slot if they will all fit
+		- Examples:
+			- The three following variables, declared in this order, will fit into two slots
+
+				uint8 num1; 		// One byte of storage
+				uint16 num2; 		// Two bytes of storage
+				bytes32 var; 		// 32 bytes of storage
+
+				- Since size of num1 + num2 < 32 bytes, they will be placed together
+					in one slot
+				- var is 32 bytes long and will not fit into the first slot, even
+					though there is more space
+
+			- The three following variables, declared in this order, will be placed in THREE slots
+
+				uint8 num1;
+				bytes32 var;
+				uint8 num2;
+
+				- The EVM looks at variables in order for optimization
+				- Because num1 + var AND var + num2 > 32 bytes, no variables will be
+					placed in the same slot
+- https://docs.soliditylang.org/en/v0.8.14/internals/layout_in_storage.html
+
+- How casting works
+	- https://www.tutorialspoint.com/solidity/solidity_conversions.htm
+	- Casting in Solidity generally costs the higher order bytes
+
+		bytes2 a = 0x1234;
+		bytes1 b = bytes1(a); // b = 0x12
+
+		- Therefore casting bytes32 to bytes16 would look like
+
+			bytes32 a = 0x1234567812345678123456781234567812345678123456781234567812345678
+			bytes16 b = bytes16(a) 		// b = 0x12345678123456781234567812345678
+
+- In the code
+	- Thanks for sticking with me so far, this level had a lot of information in
+		it :)
+	- Our goal is to change a boolean, locked, from true to false
+	- The way to accomplish this is to successfully supply the key to the
+		unlock function
+	- This problem is very similar to level 8, however adding the information we
+		learned about storage and casting, we can get the key
+	- Where the similarities begin
+		- Like we learned in level 8, even variables marked as private are
+			available on the blockchain
+		- We can leverage this into querying the blockchain to reveal storage at
+			different locations
+			- await web3.eth.getStorageAt(address, slot_index)
+	- Where the similarities end
+		- The variable declarations in this contract are much more complex and
+			requite knowledge of how the EVM optimized storage
+
+			  bool public locked = true;
+				uint256 public ID = block.timestamp;
+				uint8 private flattening = 10;
+				uint8 private denomination = 255;
+				uint16 private awkwardness = uint16(now);
+				bytes32[3] private data;
+
+		- In this exmaple we have many more variables to deal with, meaning the
+			EVM will implement its optimization in the following format
+
+				bool public locked = true; 										// first variable stored in slot 0
+				uint256 public ID = block.timestamp; 					// uint256 is 32 bytes long, get its own slot in slot 1
+				uint8 private flattening = 10; 								// One byte long, starts slot 2
+				uint8 private denomination = 255; 						// One byte long, added to slot 2
+				uint16 private awkwardness = uint16(now); 		// Two bytes long, added to slot 2
+				bytes32[3] private data; 											// Static array of 32 bytes each, 96 total. Each index will get placed in a new slot, 3, 4, 5
+
+		- Mapping out the storage layout, we can use this as a reference to find
+			where the key is stored
+
+	- Finding the key
+		- In the unlock() function we can see the user input parameter (_key) is
+			compared to data[2] casted to bytes16
+
+			_key == bytes16(data[2])
+
+		- We can confirm the storage location by checking the decompilation from
+			etherscan
+
+			stor5 is uint256 at storage 5
+			...
+			require Mask(128, 128, _param1) == Mask(128, 128, stor5)
+
+			- data[2] is the third and last index of the data[] array, looking back
+				to our mapping for the declared variables, the last index of the
+				array is stored at slot 5, matching the output above
+			- Finding the decompilation on etherscan
+				- The full process to find the decompiled bytecode is covered in level
+					8
+				- However, when I was doing this level etherscan would queue the
+					decompilation to take over "256 minutes" (long time)
+				- So to get around this, there are thousands of instances of the same
+					contract on the rinkeby network so you are find a contract with the
+					same bytecode and look at the decompilation of that contract and
+					skip your wait
+					- Under the contract tab, there should be a note saying something
+						similar
+
+						Note: We also found another 2949 contracts with exact matching byte codes
+
+					- Here is the contract that I used to skip the queue
+						- https://rinkeby.etherscan.io/bytecode-decompiler?a=0xc7a20213614243e8e7aba26387adb5d078e89502
+
+- Exploitation
+	- Finally we're getting there :)
+	- There are two ways of exploiting this level
+		- (semi) By hand via sending commands through the js console (cooler and
+			more epic learning)
+		- Creating a (mid) contract
+	- Both methods start the same
+		- As we discussed earlier, we are able to find out the value of data[2],
+			or value that is the key
+
+			await web3.eth.getStorageAt(<your instance address>, 5)
+
+			- This will return a 32 byte string
+
+	- By-hand method
+		- The 32 byte string is going to be cast into bytes16 so we need to
+			emulate this
+		- In order to chop up the bytes32 object by hand, we need to know how
+			casting is done in Solidity, luckily, we went over that earlier :)
+		- Essentially we need to chop off the highest order bytes
+			- I did this quick and dirty in the python interpreter
+
+				$ python
+				Python 3.10.4 (main, Jun 15 2022, 14:02:11) [GCC 11.3.0] on linux
+				Type "help", "copyright", "credits" or "license" for more information.
+				>>> s = '0xcaa328b5aa3536364f9c4a54d927b81b326f2b4576eaa38f81e8a46e5c165dd1'
+				>>> s = s[2:] 															# get rid of the '0x'
+				>>> s = s[:32] 															# lop off all characters after the 32nd char, Note, 2 chars per byte, so 32 chars == 16 bytes
+				>>> s = '0x' + s 														# add the '0x' back
+				>>> s 																			# print that bad boy back out
+				'0xcaa328b5aa3536364f9c4a54d927b81b'
+
+				- Note, your hex string will be different from mine
+
+		- With this, we have the value which we can plug into unlock()
+			- await contract.unlock('<your hex string>')
+
+	- Using a contract (cheating + less learning)
+		- Full source code is found in "/contracts/12_privacy.sol"
+		- Using a contract, we can let solidity do the casting for us and
+			therefore not need to understand how casting actually works
+		- Create an instance of the Privacy contact (seen in constructor())
+		- Cast the bytes32 object into bytes16 and send that into the unlock()
+			function of the ethernaut contract
+
+			  function sendPassword(bytes32 _key) public {
+    			key = bytes16(_key);
+					priv.unlock(key);
+				}
+
+	- Deploy the contract and call the sendPassword() function

@@ -1,0 +1,76 @@
+------------------
+NOTES
+------------------
+
+LEVEL 9: KING
+------------------
+
+Vulnerability - Bad external assumptions
+- The game King of the ETH was a glorified ponzi scheme where person 1 would
+	send a contract X ether to become king and then person 2 would come along
+	and send X + Y ether to become the new king, giving person 1 a payout
+- The contact however does not check that sending someone ether will succeed
+- Meaning someone can become king by sending ether, then block the
+	transaction, ensuring that no one else can become king
+
+- In the code
+	- Fallback function contains:
+
+		// Make sure new prize > old prize and sender is not already owner
+		require(msg.value >= prize || msg.sender == owner);
+		// Give the old king the money
+    king.transfer(msg.value); 			// VULN HERE
+		// Make the sender of ETH the new king
+    king = msg.sender;
+
+		- The vulnerability come when the contract transfers msg.value to the old
+			king
+		- There is no require statement or checks in place to validate that the
+			transfer went through
+		- This means that if the new king can somehow revert or block the transfer
+			of eth, the King of the ETH contract will stop with an exception,
+			preventing the new king from being crowned
+
+Exploitation
+- Finding out how much ETH is in the contract
+	- Via rinkeby.therscan.io
+		- Paste the transaction into the search bar and select the rinkeby
+			blockchain (not the mainnet)
+		- or go to rinkeby.etherscan.io/address/<instance address>
+		- The balance of the contract will reflect the amount needed to send the
+			contract to become king
+	- Via browser console
+		- await contract.prize().then(v => v.toString())
+
+- Creating a malicious contract that won't accept ethers back
+	- Full source code is found in "/contracts/9_king.sol"
+	- Constructor
+		- Needs to be payable so we can initialize the contract with some bread
+
+			constructor() public payable {
+			}
+
+	- Function to send the ETH
+		- Needs to take a payable address and make a call
+
+			(bool sent, ) = _to.call{value: 1000000000000001}("");
+
+		- Require that the ETH actually gets sent
+
+			require(sent, "ETH not sent");
+
+	- Either omit the fallback together or create a fallback that reverts/
+		blocks the transaction
+
+			receive() external payable {
+				revert("king is dead");
+			}
+
+- Deploy the contract to the blockchain via Remix
+
+- call the regicide() function and submit the instance when the tx completes
+	- the regicide function will make your contract the king
+	- when submitting the instance, the ethernaut contract will transfer eth to
+		your contract, hitting the fallback function
+	- the fallback function will then revert the tx and execution of the
+		ethernaut contract will halt with an error

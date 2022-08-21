@@ -1,0 +1,88 @@
+------------------
+NOTES
+------------------
+
+LEVEL 19: Alien Codex
+------------------
+
+Vulnerability - Integer underflow to modify all of a contract's storage
+- According to the solidity docs, dynamic arrays do not have their contents
+	stored "in between" storage slots
+- The original array "takes up" 32 bytes and is stored according to the normal
+	storage rules
+- However, the contents of a dynamic array are rather stored at slot
+	keccak(p) where p is the slot of the original array
+	- A dynamic array is stored at slot 3
+	- array[0] is at slot keccak(3)
+	- array[1] is at slot keccak(3) + 1
+	- array[2] is at slot keccak(3) + 2
+	- etc...A
+- https://docs.soliditylang.org/en/v0.8.13/internals/layout_in_storage.html#mappings-and-dynamic-arrays
+
+- Because of this, if an array's length is underflown with an integer
+	underflow, the array will expand to the bounds of memory and disables any
+	solidity bounds checking, meaning that if you can edit a specific index,
+	there is no bounds for you to be stopped
+
+Exploitation
+- The exploitation for this level is fairly straight forward and is done all
+	from the JS console
+- Since there is a contacted modifier, we need to call the make_contact()
+	method before calling anything else
+
+	await contract.make_contact()
+
+- Underflow the array length to expand the array to the rest of storage
+	- The retract() function decrements the codex.length variable with each
+		call, however, there is no bounds checking involved
+
+		await contract.retract()
+
+		- This call will decrease the length of the array past 0 and will then
+			underflow, expanding the array's storage space
+
+- Find the "location of the dynamic contents" and the slot0 address
+	- Dynamic arrays are stored at slot keccak(p) (see above)
+	- The codex[] array is stored in slot1
+	- Therefore the first element of the codex[] array is stored at keccak(1)
+	- So to find the index of codex[] the corresponds to slot0, we can do some
+		mathz
+		- There are 2^256 slots, and codex is at slot keccak(1)
+		- Meaning there are (2^256 - keccak(1)) slots after codex[0]
+		- If we go one past this max slot, we will wrap around and edit slot 0
+			(kind of like an overflow)
+		- Therefore, the index we need is (2^256 - keccak(1)) + 1
+			- Obtaining this value using the python interpreter
+				- Make sure to have the web3 library installed (pip install web3)
+
+				# importing web3
+				>>> import web3
+				# get the keccak hashs of a byte32 1
+				>>> w3.Web3.keccak(hexstr='0x0000000000000000000000000000000000000000000000000000000000000001')
+						HexBytes('0xb10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf6')
+				# do our math to get the codex[] index
+				>>> 2 ** 256 - 0xb10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf6 + 1
+						35707666377435648211887908874984608119992236509074197713628505308453184860938
+
+- Overwrite the owner variable in slot0
+	- Now with the index of codex that equates to slot0, we can overwrite the
+		owner variable
+	- Since the contract inherits Ownable, slot0 has two values, the 20 byte
+		long owner variable from Ownable and the boolean value of contact
+	- This means that we can't just flatly overwrite the index with our address,
+		we need to mimic the format as to not overwrite contact
+	- Check out the memory in slot0
+
+		await web3.eth.getStorageAt('<instance address>', 0)
+
+		- Output should look similar to this:
+			'0x000000000000000000000001da5b3fb76c78b6edee6be8f11a1c31ecfb02b272'
+		- Notice the highest bytes are:
+			'0x000000000000000000000001'
+			- This is the boolean set to 1, or true
+		- We only overwrite everything after 0x0...1
+	- Overwriting slot0
+
+		await contract.revise('35707666377435648211887908874984608119992236509074197713628505308453184860938','0x000000000000000000000001<your address>')
+
+- Submit the instance

@@ -1,0 +1,193 @@
+------------------
+NOTES
+------------------
+
+LEVEL 16: Preservation
+------------------
+
+Vulnerability - Controlling a storage slot with delegatecalls to hijack a delegatecall
+- This vulnerability is pretty sweet ngl
+- This beginning of this vulnerability comes from a delegatecall being
+	made that ends up overwriting a storage slot on the calling contract,
+	allowing us to overwrite an address variable with a malicious address, then
+	using that malicious adds to create ANOTHER delegatecall and overwrite the
+	owner variable with our own address
+
+- In the code
+- The "Preservation" contract makes a delegatecall to the "LibarayContract"
+	contract
+	- The setTime() function called from the delegatecall will, at a low level,
+		overwrite whatever value is stored in slot0 of the caller contract
+
+- This can get confusing pretty fast so here's a break down with some examples
+	- The storage slots of the Preservation contract are laid out accordingly:
+
+		contract Preservation {
+
+  	// public library contracts
+		address public timeZone1Library; 		// Slot 0
+		address public timeZone2Library;  	// Slot 1
+		address public owner; 				  		// Slot 2
+		uint storedTime; 								 		// Slot 3
+
+	- The storage of the LibarayContract is laid out accordingly:
+
+		contract LibraryContract {
+
+  	// stores a timestamp
+  	uint storedTime; 	 									// Slot 0
+
+		- Important note, storedTime and timeZone1Library are stored in the same
+			slot number, but in different contract
+
+	- The vulnerability comes into play in the setFirstTime() function of the
+		Preservation contract
+
+		function setFirstTime(uint _timeStamp) public {
+    	timeZone1Library.delegatecall(abi.encodePacked(setTimeSignature, _timeStamp));
+  	}
+
+		- This delegatecall calls the setTime() function of the address stored in
+			timeZone1Library (remember the variable in slot 0?)
+		- The setTime() function will overwrite the "storedTime" variable with
+			whatever the parameter is, luckily, we can control this parameter
+		- The operation in setTime() updates a variable, however, at a low level
+			the actual operation going on is basically "Overwrite the value at this
+			storage slot with whatever the parameter is"
+		- Since this operation is getting executed through a delegatecall, this
+			function is acting essentially as a library and is able to write to
+			state variables of the Preservation contract
+		- So what ends up happening is when setTime() gets called via a
+			delegatecall in Preservation, it will overwrite slot0 with whatever we
+			have supplied
+			- This means that we can arbitrarily overwrite the timeZone1Library
+				variable with whatever we can send to the function!
+
+	- Being able to overwrite this variable, we can take over an address that is
+		used to make delegatecalls. Meaning we can control which contract is
+		called to supply the setTime() function
+			- (hint: we're going to make this contract one of our own and change the
+				code inside OUR setTime() function >:^) )
+
+	- Since we can control what address timeZone1Library points to, we can make
+		it point to a contract of our own and call a setTime() function in our own
+		contract, which likely does some mischievous stuff ;)
+		- delegatecalls take an encoded function signature in order to distinguish
+			the actual function to call/import from the foreign contract
+			- A function signature is 4 byte object of a hash of the string in the
+				following format: "<functionName>(<parameterDataType1>,<parameterDataType2>, etc)"
+				- Ex bytes4(keccak256("setTime(uint256)"))
+					- keccak256 is a hashing algorithm based off of sha3, and is commonly
+						used on the ethereum network
+				- Note, the signature syntax is somewhat similar to the syntax for
+					declaring an interface
+
+		- Ok, back from this tangent, lets look at how we can call an arbitrary
+			function using overwritten address and a delegatecall
+
+			function setFirstTime(uint _timeStamp) public {
+				timeZone1Library.delegatecall(abi.encodePacked(setTimeSignature, _timeStamp));
+			}
+
+			- So currently we control the timeZone1Library variable which is the
+				address the delegatecall will look out to when calling/importing the
+				function
+			- The setTimeSignature variable is a function signature we will have to
+				mimic
+			- If we create a contract with a function that looks like:
+
+				function setTime(uint _time) {  }
+
+				- We can shove any code into the body of the function and the
+					delegatecall will execute it from within the Preservation contract
+				- Since we can inject any code, we can control any variable in the
+					storage of the Preservation, we can overwrite the slot with the same
+					technique we used when overwriting timeZone1Library
+					- If we overwrite the owner variable, stored in slot 2, we can
+						make our own address become the owner of the contract
+
+- Hopefully this writeup made some sense, this concept is a bit tricky to
+	explain via just words in a text file, if you are still confused, please
+	reach out to talk, make some edits to the writeup yourself or recommend some
+	edits for the writeup and I'll be happy to oblige :^)
+
+Exploitation
+- Now we get into the fun stuff :)
+- As always full source code is found at "/contracts/16_preservation.sol"
+- Create a malicious contract
+	- To exploit Preservation, we need to create a malicious contract like we
+		have in the past
+	- In order to make sure we have the storage slots lined up with the
+		Preservation contact, we should define our contract variables in the same
+		manner (this will come in handy + make sense down the line)
+
+		contract evil {
+			address public a1;
+			address public a2;
+			address public owner;
+			uint int1;
+		}
+
+- Step 1: Overwrite timeZone1Library with a delegatecall
+	- To overwrite timeZone1Library, all we need to do is call the
+		setFirstTime() function and pass in the address of our contract
+		- This can be done in two ways, the easiest is just from within the
+			attacker contract, however, alternatively, you could also manually call
+			it with the browser console
+			- Browser console command: await contract.setFirstTime(<uint representation of your address>)
+			- This is much easier to do from within the attacking contract as
+				follows:
+
+				function setStorage0() public {
+					// victim is an instance of an interface of the Preservation
+					// contract, see source code for details
+					victim.setFirstTime(uint(address(this)));
+				}
+
+- Create a mimicked setTime() function
+	- With the timeZone1Library variable overwritten, the next step is to create
+		a mimicked setTime() function that will overwrite the owner variable in
+		Preservation
+
+		function setTime(uint _time) public {
+			owner = msg.sender;
+		}
+
+		- Remember when we made sure to line up all the slots in our attacker
+			contract with the slots in Preservation?
+			- That was because when we use our malicious setTime() function, we want
+				to overwrite the slot that the owner variable is stored in
+			- If we copy the declarations of Preservation, we know that the slots
+				will line up so when we set out our local owner variable, it matches
+				up with the slot the owner is stored in Preservation
+		- Further note, the uint _time parameter is never used but needed to match
+			the signature of the original delegatecall which is hard coded into the
+			Preservation contract
+		- Further further note, msg.sender always resolved to an EOA (see
+			glossary) address and will resolve to your metamask address in this
+			context
+
+- Overwrite the Preservation owner variable with our address
+	- Now that we own the address the delegatecall looks for and we mimic the
+		setTime() to inject our own code, we just need to call the setFirstTime()
+		function in Preservation to initiate the delegatecall to our setTime()
+	- You are definitely able to do this from a contract, however this was quite
+		finicky for me and the most reliable method ended up being to just call
+		the function by hand from the browser console
+
+		await contract.setFirstTime(1)
+
+		- With this our setTime() should overwrite slot3 with msg.sender, or the
+			metamask address that initiated the message and we will become the new
+			owner of the contract :)
+
+Security notes
+- Delegate calls can be dangerous. This vuln arises from the LibarayContract
+	having its own state varaible that is written to in the setTime() function
+	- To remediate this bug, no contract that is called with a delegatecall
+		should have its own state variables or the function calling the
+		delegatecall should not update or write to the state variables
+
+- Various best practices can also be used in this scenario such as designating
+	any function that makes a delegatecall to be private, reducing access to the
+	function

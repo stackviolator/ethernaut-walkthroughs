@@ -1,0 +1,94 @@
+------------------
+NOTES
+------------------
+
+LEVEL 14: Gatekeeper Two
+------------------
+
+This level was literally cake
+GK one took me two days like level took me 20 mins (if that)
+
+Vulnerability - No vuln, just pass the gates
+
+Gate one:
+- Same as GK one and Telephone
+	- Make sure you're sending your calls from a contract, rather than teh JS
+		console
+
+Gate two:
+- This gate calls extcodesize(caller())
+	- extcodesize() will return a uint of the size/ amount of code
+	- caller() is a bit ambiguous to me as the docs only describe it as:
+
+		caller() 		| 		F 		| 		call sender (excluding delegatecall)
+
+		- so not very helpful
+
+	- The hint recommends reading about extcodesize() in the yellow paper
+		- In the yellow paper, if you search for extcodesize, the first finding is
+			as follows:
+
+			During initialization code execution, EXTCODESIZE on the address should
+			return zero, which is the length of the code of the account while
+			CODESIZE should return the length of the initialization code
+
+			- As the GK2 requires that extcodesize() needs to return 0, we can
+				reasonably infer that we are supposed to make our calls during
+				"initialization code execution" or, in plain terms, from the
+				constructor, before there is an actualy contract
+
+Gate three:
+- Gate three should be very simple if you have done any binary exploitation
+	CTFs or any CS education
+	- If not, no worries :)
+
+- The contract takes in a key and performs the following check:
+
+	 require(uint64(bytes8(keccak256(abi.encodePacked(msg.sender)))) ^ uint64(_gateKey) == uint64(0) - 1);
+
+	 - In computer terms, ^ is an XOR, or the exclusive OR bitwise function
+	 	- XOR will check each bit of two operands, returning 0 if the operands
+			match and 1 if the operands and different
+	 	- Here is a helpful table to visualize xor
+
+			A 	| 	B 	| A ^ B
+		  --------------------
+		   0  |   0   |   0
+		   1  |   0   |   1
+		   0  |   1   |   1
+		   1  |   1   |   0
+
+	- The trick behind XOR is that it's a reversible operation
+	 - In our code, the key is checked by:
+
+		 require(uint64(bytes8(keccak256(abi.encodePacked(msg.sender)))) ^ uint64(_gateKey) == uint64(0) - 1);
+
+	- However since this is reversible, we can swap out one operand for
+		another to find what the _gateKey should be
+
+		 require(uint64(bytes8(keccak256(abi.encodePacked(msg.sender)))) ^ uint64(0) - 1) == uint64(_gateKey);
+
+Exploitation
+- Full source code is found in "/contracts/14_gatekeeper_two.sol"
+- Create a malicious contract to make the calls
+	- This step should be a breeze at this point, load up remix and create a new
+		contract
+
+- Swap out the XOR
+	- We can find the correct _gateKey by swapping out the operands in the XOR
+		as explained above
+
+		uint64 _gateKey = uint64(bytes8(keccak256(abi.encodePacked(address(this))))) ^ uint64(0) - 1;
+
+- Make calls from the constructor
+	- In order to force extcodesize() to be 0, we need to make all of our calls
+		from the costructor, rather than a regular function
+
+		  constructor() public {
+        address _vAddr = address(0xa47c253e63420545b98Bb45df01648eFFF940173);
+        // XOR is reversible
+        uint64 _gateKey = uint64(bytes8(keccak256(abi.encodePacked(address(this))))) ^ uint64(0) - 1;
+        _vAddr.call(abi.encodeWithSignature("enter(bytes8)", bytes8(_gateKey)));
+    }
+
+- Compile, deploy and submit the instance

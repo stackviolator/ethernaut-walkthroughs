@@ -1,0 +1,55 @@
+------------------
+NOTES
+------------------
+
+LEVEL 15: Naught Coin
+------------------
+
+Vulnerability - Lack of import understanding
+- In this level, the contract from makes the players the owner of the contract
+	and allocates a bunch of ERC20 tokens to their address
+- There is a transfer() function, however, it requires a loooong time to pass
+	(10 years)
+- However, the contract imports a code from an openzepplin repository
+	- https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC20/ERC20.sol
+- Within this library there are alternative methods to authorize and transfer
+	funds
+
+Exploitation
+- Approve sending a new address
+	- ERC20 is a standization for fungible tokes, this specific example uses the
+		OpenZeppelin ERC20 library
+	- This library contains code in which adheres to the ERC20 standard
+	- One of the functions in this library is approve()
+		- This function has the following functionality:
+
+			@dev Sets `amount` as the allowance of `spender` over the `owner` s tokens.
+
+			- So this function will allow an address (spender) to transfer (amount)
+				of tokens from the owner's pool
+
+	- If we call this function and pass in an address, either a contract or just
+		as easily our own wallet, as well as the amount of tokens we were
+		allocated, we can authorize ourself to use a different transferring
+		function and swipe all the coins
+
+		await contract.approve(player, '1000000000000000000000000')
+
+- Send the tokens via a library call
+	- There's various other functions in the OpenZeppelin library that move
+		money, however the easiest to work with is transferFrom()
+	- transferFrom() works directly with approve(), requiring that the "payer"
+		is approved
+	- To complete this level we only need to drain the contract, if you want the
+		ETH to be redirected to you, you can set up an intermediary contract that
+		will forward you the ETH, I'm lazy and not going to :)
+
+		await contract.transferFrom(player, '0xc7a20213614243e8e7aba26387adb5d078e89502', '1000000000000000000000000')
+
+		- We have approved ourself (player) to send the full amount of tokens in
+			the contract in the approve() step
+		- the address here is some random valid address on the rinkeby network i
+			picked, i think  it was one of my old contracts from a previous
+			challenge
+
+- Submit the instance

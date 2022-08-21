@@ -1,0 +1,60 @@
+------------------
+NOTES
+------------------
+set up URL: https://ethernaut.openzeppelin.com/level/0x4E73b858fD5D7A5fc1c3455061dE52a53F35d966
+level URL: https://ethernaut.openzeppelin.com/level/0x0b6F6CE4BCfB70525A31454292017F640C10c768
+
+LEVEL 4: TELEPHONE
+------------------
+
+Vulnerability - tx.origin
+- tx.origin returns a value of the address of the account that sent the
+	transaction
+	- Can be used in phishing as well
+- The contract validates the owner of the contract with:
+
+	if (tx.origin != msg.sender)
+
+	- meaning that the contract only checks to see what the address is of
+		whoever called the changeOwner() function
+
+Exploitation
+- Source code for the exploit can be found at "contracts/4_telephone.sol"
+
+- Create a malicious smart contract
+	- Similar to the previous challenge, we will be using Remix IDE
+	- File #1 - Telephone.sol
+		- Create a new file, Telephone.sol and drop in the source of the contract
+			given from Ethernaut. Luckily no adjustments need to be made this time
+			around
+
+	- File #2 - TelephoneAttacker.sol (exploit)
+		- Create a new file in which we will create the exploit itself
+
+		- Instantiate the instance from ethernaut
+			- Within the contract, we need to create an instance of the victim
+
+				Telephone public t = Telephone(ADDRESS OF INSTANCE);
+
+			- Using this object, we are able to manipulate and call public functions
+
+		- create a new function to change the owner
+			- We are going to use this function to call the ORIGINAL changeOwner()
+				function from the victim smart contract
+
+				function changeOwner(address _owner) public {
+            t.changeOwner(_owner);
+      	}
+
+			- This function calls changeOwner() of the instance of the Telephone object (t)
+				- Since the original contract is the actualy entity that is calling
+					the changeOwner() function, the transaction is tied to the address
+					of the instance
+				- When t.changeOwner() function is evaluting:
+
+					 if (tx.origin != msg.sender)
+
+					tx.origin is going to look for the address that called
+					changeOwner(), resulting in the address of t
+
+

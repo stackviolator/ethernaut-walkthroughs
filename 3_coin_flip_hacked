@@ -1,0 +1,137 @@
+------------------
+NOTES
+------------------
+set up URL: https://ethernaut.openzeppelin.com/level/0x4E73b858fD5D7A5fc1c3455061dE52a53F35d966
+level URL: https://ethernaut.openzeppelin.com/level/0x4dF32584890A0026e56f7535d0f2C6486753624f
+
+LEVEL 3: Coin Flip
+------------------
+
+Vulnerability - Random Number Generation
+	- Generating random numbers in solidity is not easy, no native methods
+	- All smart contract code is visible, even code marked as "private"
+	- This specific example uses the previous blockhash as part of the seed value
+			-  uint256 blockValue = uint256(blockhash(block.number.sub(1)));
+			-  blockValue is assigned to a uint of the blockhash of the previous block
+	- Both the blocks and the algorithm to calculate a random flip is public
+		meaning me can create a new smart contract to attach to the original
+		instance to calculate if the flip will be heads or tails and then feed the
+		correct answer in to the smart contract
+
+	- In the code:
+			- uint256 blockValue = uint256(blockhash(block.number.sub(1)));
+					- The variable blockValue is initialized using the blockhash of the
+			  ...
+
+			- uint256 coinFlip = blockValue.div(FACTOR);
+    		bool side = coinFlip == 1 ? true : false;
+					- coinFlip -> created by dividing blockValue by FACTOR (both are
+						known)
+					- side -> found by comparing coinFlip to 1, either true or false
+
+			- Since we can ~actually~ determine the "random" value of a coin flip, we
+				can win the game
+
+Exploitation
+	- This requires more leg work as we are going to create out own smart
+		contract to proxy or attach itself to the original contract issued by
+		Ethernaut
+
+	- Setting up the Remix IDE:
+			- Solidity IDE that has built in features to deploy contracts to the
+				blockchain
+			- https://remix.ethereum.org/
+			- Personal preference - creating a blank workspace for this challenge
+					- On the file explorer tab, there a small plus button to the right
+						of the word "Workspaces"
+					- Click on this button and a pop-up should appear
+					- Enter the name of the workspace you would like and under the
+						template drop down select "blank"
+
+	- The following files should be made within Remix
+
+	- First file - CoinFlip.sol
+			- We need the original file given by Ethernaut to feed into our hacked
+				up smart contact interact with almost performs the same function as a
+				library
+			- Str8 up copy and paste the code right into a new file in Remix
+					- This contract uses "SafeMath" as a library, the import given
+						(import '@openzeppelin/contracts/math/SafeMath.sol';) can't be
+						resolved by Remix which causes some issues :^)
+					- To satisfy this, grab a new SafeMath.sol file. This worked for
+						me: import 'https://github.com/Carlos-RWI/SafeMath.sol/blob/master/SafeMath.sol';
+							- NOTE: This file needs to be compiled with Solidity 0.5.0, and
+								our smart contract currently is asking for version 0.6.0 and
+								above
+							- Change the pragma file:
+									- FROM: pragma solidity ^0.6.0;
+									- TO: pragma solidity ^0.5.0;
+
+	- Second file - hacked.sol
+			- Source code in it's entirety is found in "contracts/3_coin_flip_hacked.sol"
+			- Our hacked contract is going to do a couple main things:
+					- Create a "CoinFlip" object taking in the address of a contract
+							- WHY? - we are attacking a preexisting contract with a new
+								contract
+
+							- constructor(address _victimAddress) public {
+                	victimContract = CoinFlip(_victimAddress);
+        				}
+
+					- Re-use the logic with the blockValue to determine what the coin
+						flip will be
+							- WHY? - all the moving parts in the logic are made public.
+								Therefore we can automate taking these values and determining
+								the outcome
+
+							- function flip() public returns (bool) {
+                	uint256 blockValue = uint256(blockhash(block.number - 1));
+                	uint256 coinFlip = uint256(blockValue / FACTOR);
+                	bool side = coinFlip == 1 ? true : false;
+
+					- Send the result to the original contract
+							- WHY? - the original contract is keeping track of the amount of
+								correct "guesses" we have made. Therefore we should send the
+								correct guess to update the value.
+
+	- Using Remix for exploitation
+			- If you haven't, add the files to remix
+					- If you are using Remix the file tree should look like this:
+
+						.
+						├── artifacts
+						│   └── lots of things
+						├── .deps
+						│   └── lots of things
+						├── CoinFlip.sol
+						└── hacked.sol
+
+			- Compile the hacked.sol file
+				- To compile a .sol file in Remix, select the Solidity Compiler
+					(fourth option) on the left pane
+				- Select the hack.sol file in the "CONTRACT" drop down menu
+				- Click the big blue Compile button
+
+			- Running the new hacked up contract
+				- Select the "DEPLOY & RUN TRANSACTIONS" option (fifth option) from
+					the left pane
+				- Select "Injected Web3" from the "Environment" drop down menu
+					- This allows you to run contracts via metamask
+				- Select the hacked - hacked.sol contract from the "CONTRACT" menu
+					- Grab the instance address from ethernaut and paste that into the
+						address _victimAddress parameter box
+						- The instance address should be in the console from when you got
+							a new instance and started the level
+						- If not, run await contract.address() in the browser console
+
+			- Interact with the deployed contract
+				- Assuming things worked out how they were supposed to, there should
+					be a deployed contract labeled HACKED
+				- Expand the contract and click the "flip" button
+					- This will run the flip method we created earlier
+				- This method will create a new transaction (from when we send the
+					value to the original contract)
+				- Once 10 transactions have been confirmed, you will have successfully
+					"guessed" the correct outcome 10 times
+					- To validate, run Number(await contract.consecutiveWins())
+					- This should return the amount of completed transactions made

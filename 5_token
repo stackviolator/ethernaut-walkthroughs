@@ -1,0 +1,63 @@
+------------------
+NOTES
+------------------
+
+LEVEL 5: TOKEN
+------------------
+
+Vulnerability - Integer Underflow
+- Integer underflow happens when an integer is subtracted past its minimum
+	value and will wrap around to the maximum value
+- There is no validation in the code to look for underflows/ overflows
+
+		// balances[msg.sender] is a uint
+		require(balances[msg.sender] - _value >= 0);
+
+	- If balances[msg.sender] - _value <= -1, the data type will overflow
+		and roll over to the maximum
+
+Exploitation
+- Exploitation is farily simple since there is no need to create a smart
+	contract in of itself
+- The "difficult" part of the challenge is finding the vulnerability so to pad
+	this write up so it looks good for tpenn, err fully explains the content of
+	the challenge, I will give a more in depth break down of the code.
+	- The first place that is interesting for us is the constructor:
+
+		constructor(uint _initialSupply) public {
+    	balances[msg.sender] = totalSupply = _initialSupply;
+  	}
+
+		- The constructor allows us to pass in an unsigned integer (uint or
+			uint256) which is set to be the balance of the owner
+		- The uint is important as unsigned integers only range from 0 to 2^(x
+			amount of bits) whereas a signed integer ranges from 2^(x amount of
+			bits / 2) to 2^(x amount of bits / 2)
+			- Subtracting a big ass number like -2^128 to underflow a signed integer
+				is annoying
+			- Subtracting balance + 1 to underflow is much easier
+
+	- After identifying the uint data type in the code, attacking this
+		vulnerability is fairly simple
+	- Escaping the checks in the transfer function to send an amount greater
+		than the balance
+
+		require(balances[msg.sender] - _value >= 0);
+
+		- this line in the transfer() function seems to be checking again an
+			over-withdrawal of cash money from a user's account
+			- However, since balances[msg.sender] and _value are both uints, if
+				balances[msg.sender] < _value, then the resulting value will underflow
+				and reach the maximum uint value, much much larger than 0
+
+	- Force the contract to make a trade that is weighted in your favor
+		- our transfer() function takes two parameters, an address and a value
+			- if we supply a value that is larger than our balance, a trade will
+				execute removing tokens we don't own and underflowing our balance
+
+				await contract.transfer('0xd48C5AB54b293b0D76Bd91a78798e4dB06a3a95e', 21)
+
+			- the address here is a random address, i grabbed the instance of a
+				previous level
+			- Since we know we start with 20 coins, transferring away 21 coins will
+				trigger our underflow and bring us in that sweet, sweet cash

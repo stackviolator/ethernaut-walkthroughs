@@ -1,0 +1,43 @@
+TODO: Rename file to remove .txt when done
+
+This is a section of best practices I have accumulated that didn't fit neatly
+into a level, or I learned about the best practice before/ after making a
+writeup and didn't bother adding it :)
+
+- Withdraw over send
+	- There are various vulns associated with trusting a user to make send calls
+		to transfer money (King and Reentrancy come to mind)
+	- A better approach to getting the money to the end user is creating a
+		system where a balance is assigned to the user and they are free to
+		withdraw it whenever they please
+		- Kinda like a bank now lol
+
+	Example in code
+
+	contract Something {
+
+		mapping(address => uint) public balances;
+
+		function someGame() public {
+			// This is the meat of the contract's logic
+			// Maybe this could be a game where if a player kills 20 zombie they get
+			// a prize in eth
+			if (player.numZombiesKilled > 20) {
+				balances[player] += .001 eth;
+			}
+		}
+
+		function withdraw() public {
+			uint amount = balances[msg.sender];
+			balances[player] = 0;
+			msg.sender.transfer(amount);
+		}
+	}
+
+	- If this example were to send the player eth in the someGame() function, a
+		malicious actor could break the logic to mess with payments, contract
+		state variables or other important assets
+	- This separates the logic out decreasing risk for:
+		- Software bugs affecting business operations
+		- Known exploit techniques
+		- More that my smooth brain at 12 am isnt coming up with :p

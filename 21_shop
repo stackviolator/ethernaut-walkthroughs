@@ -1,0 +1,24 @@
+------------------
+NOTES
+------------------
+
+LEVEL 21: Shop
+------------------
+
+Vulnerability - Foreign contract calls
+- The vulnerability in this challenge is very similar to the level Elevator
+	(level 11) and therefore this writeup will be very short
+- The challenge imports a contract, Buyer, that implements a function,
+	price(), that will return an uint of the price of some item
+- The goal is to get price() to return 0 or 100 on subsequent calls
+	- This differs from Elevator as the function is marked "view"
+	- View denotes that the function cannot make changes to the state and
+		therefore can't employ the same create a variable on the attacking machine
+		that we update during calls
+- However, there is a variable that is updated in between the calls meaning we
+	can use this as a sign for which value to return
+
+Exploitation
+- I will not be writing up the exploitation for this challenge as it is almost
+	the exact same as Elevator
+- See the code in "/contracts/21_shop.sol" for an example

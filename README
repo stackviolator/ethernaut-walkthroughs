@@ -1,0 +1,8 @@
+This is an document made by Josh Merrill as a self study on smart contract
+security. This was part of a project during his internship for KoreLogic
+Security in summer 2022.
+
+Within this mini-project I have walkthroughs for (hopefully) all the levels of
+the smart contract CTF Ethernaut (https://ethernaut.openzeppelin.com/), slides
+for the final presentation, the source code for any exploits made and various
+notes I deemed necessary. Enjoy :)

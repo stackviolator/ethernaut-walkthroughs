@@ -1,0 +1,171 @@
+------------------
+NOTES
+------------------
+
+LEVEL 10: Re-Entrancy
+------------------
+
+Vulnerability - Re-entrancy attack
+- If a contract only checks the balance at the initialization step, initialize
+	a bunch of requests but do no send
+- Mechanism checking balance will see X new requests with a balance of 500
+	ETH, then once all requests are "approved", execute the contract leading to
+	all trades being authorized but the Mechanism that sends ETH will trigger
+	even if the real balance is below 0
+
+- Essentially, a contract is single threaded, it has to follow full execution
+	of one function before it moves on
+- Functions must follow recursive calls before moving on
+	- if a function1 calls function2, function1 must wait for function2 to
+		finish execution before finishing itself
+
+- In the code
+
+	function withdraw(uint _amount) public {
+    if(balances[msg.sender] >= _amount) {
+      (bool result,) = msg.sender.call{value:_amount}(""); 		// VULN here
+      if(result) {
+				_amount;
+			}
+			balances[msg.sender] -= _amount;
+		}
+	}
+
+	- The withdraw() function is vulnerable to being recursively called and
+		transferring funds before decrementing the sender's balance
+
+    (bool result,) = msg.sender.call{value:_amount}(""); 		// VULN here
+
+		- This line will send eth to the fallback function of the sender
+
+		- If the sender has a fallback function with code in it, that code will
+			have to finish before execution returns to the original contract
+			- This gets complex when the fallback function calls a different
+				function, forcing execution to follow that new function before
+				returning to the fallback function, which then will finish and send
+				execution finally back to the original contract
+
+		- We can leverage this Vulnerability to create an infinite loop
+			- To do this we need two things:
+				- A fallback function that calls the withdraw() function
+				- A withdraw() function that calls the fallback function
+				- When the withdraw() function is called, it will call the fallback
+					which calls the withdraw() which calls the fallback which calls the
+					fallback which calls the withdraw() cont.
+
+		- How can we take advantage of an infinite loop?
+			- The withdraw function falls into the infinite BEFORE decrementing the
+				sender's funds
+			- Flow of execution should look like this:
+				- Withdraw() gets called by some contract
+				- Withdraw will:
+					- Send eth to some contract
+					- Contract receives eth
+					- Withdraw lowers the sender's balance
+					- END
+			- However, with this loop, execution can be forced into:
+				- Withdraw() gets called by some contract
+				- Withdraw will:
+					- Send eth to the contract's fallback
+						- Contract's fallback will receive eth and call the withdraw again
+						- Withdraw will:
+							- Send eth to the contract's fallback
+								- Contract's fallback will receive eth and call the withdraw again
+									- Withdraw will:
+										- Send eth to the contract's fallback
+											- Contract's fallback will receive eth and call the withdraw again
+											- continues forever or until the fallback decides it's good
+
+			- Taking advantage of this loop, an attacker can drain the entire
+				contract before the contract decrements the sender's balance
+
+Exploitation
+- Full code can be found in "contracts/10_reentrancy.sol"
+- Set up an interface with the ethernaut contract
+	- Since we are going to be using functions of the ethernaut contract, we will
+		need to set up and interface to interact with them
+
+		interface Re {
+  		function donate(address _to) external payable;
+			function withdraw(uint _amount) external;
+		}
+
+		- Note, these functions were labeled as "public" in the original contract,
+			however solidity requires functions in an interface to be external
+		- To instantiate the interface, define a Re object attribute and create an
+			instance in the constructor (see code)
+
+- Get added to the list of donors
+	- The withdraw() function checks the balance of an address in a mapping of
+		addresses to ints, meaning we need to be "be on the list" of donors before
+		asking for a withdrawal
+
+		function sendBread() public payable {
+      victim.donate.value(amount)(address(this));
+		}
+
+		- sendBread() uses the interface from before to call donate() and send in
+			an amount of eth, i define .001 ether in the constructor
+
+- Trigger a withdraw
+	- We want to call the first withdraw() in order to trigger our recursive
+		loop
+
+		function withdrawBread() public {
+      victim.withdraw(amount);
+    }
+
+		- Again, we use the interface to call functions in the og contract
+
+- Recursive fallback
+	- Once we call our first withdraw(), the ethernaut contract is going to send
+		us money back triggering our fallback
+	- so our fallback is going to in turn call the withdraw again, achieve our
+		*finite* loop
+
+			receive() external payable  {
+				if (address(victim).balance >= amount) {
+					victim.withdraw(amount);
+				}
+			}
+
+		- Note, there is an if statement checking to see if there is still money
+			in the contract, if there is nothing left, we will give execution up to
+			whatever function called that specific fallback which will work its way
+			back up the chain, finishing execution
+			- Amount here == .001 ether, the contract deploys with .001 ether and we
+				withdraw increments of .001 ether
+			- Therefore, if the balance is less than .001 we know we withdrew the
+				last of it
+
+- Take the monies for ourselves >:^)
+	- All that stolen... uh... refurbished eth is no good just hanging out in
+		our contract, so we need to create a function to send us our ill-gotten
+		gains
+
+		function savior(address payable _to) public payable {
+      (bool sent, ) = _to.call{value: address(this).balance}("");
+			require(sent, "Failed to send ether");
+		}
+
+		- this function is called savior() since it can be called to send you back
+			your eth if your contract fails the challenge
+			- a feature i made use of more than once
+
+- Deploying and destroying
+	- Now with the attacker contract coded up, its time to perform our attack!
+	- Compile and deploy the contract as we have been doing
+	- Make sure to toss in the address of the instance, as well as deploying the
+		contract with some initial wei
+
+		1000000000000000
+
+		- ^ the amount of wei == .001 eth
+	- Once deployed, call the sendBread() function to become a donor
+	- Following suit, cash out by calling the withdrawBread() function
+		- This will trigger the chain of withdraw() -> fallback functions
+	- Assuming everything worked out, your contract should have burgled the bank
+		and stolen every last drop of eth
+	- Plug your metamask address into savior() and submit the instance :)
+
+

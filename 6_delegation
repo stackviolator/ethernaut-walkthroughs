@@ -1,0 +1,82 @@
+------------------
+NOTES
+------------------
+
+LEVEL 6: Delegation
+------------------
+
+Delegate call, call activate the fallback function. Need to find + send the
+abi bytes of the function you wanna call
+
+Vulnerability - Delegatecall
+- Delegatecalls vs regular calls
+	- Delegatecalls function similar to importing a library, the code modifies
+		local variables and executes locally
+	- Regular calls function similar to a remote API, code is executed on some
+		other device somewhere else, modifying memory over there
+- The delegate contract has a pwn() function, setting the owner to msg.sender
+	- Meaning to takeover the contract, you just need to call pwn()
+- Delegation contact uses a delegate call for whatever the user passes in
+	(very dangerous)
+	- From the console, if one is able to force the delegatecall to call pwn
+		from the Delegation contract, msg.sender will evaluate to our address
+
+http://console-cowboys.blogspot.com/2020/10/smart-contract-hacking-chapter-7.html
+
+Exploitation
+- The fallback function of the Delegation contract holds a delegatecall that
+	will drop in whatever data the msg contains
+
+	(bool result,) = address(delegate).delegatecall(msg.data);
+
+	- Therefore if we can pass in a call to pwn() we will call the pwn()
+		function from our own address and set the owner to our address
+
+- How to call pwn()
+	- Hitting the fallback function
+		- same method as level 1 :)
+		- await sendTransaction(some payload)
+
+	- We aren't able to pass in a string of "pwn()" and call the function
+		- However according to the docs:
+
+			data - String: (optional) Either a ABI byte string containing the data of
+			the function call on a contract, or in the case of a contract-creation
+			transaction the initialization code.
+
+		- the sendTransaction() function has a parameter "data" (remember
+			msg.data?) that allows us to drop in an ABI byte string of some function
+			to call
+
+- The reason why "pwn()" failed
+	- The encryption scheme used when calling a delegatecall, is an unpadded
+		string of bytes, syntax will usually look something like this:
+
+		someContract.delegatecall(abi.encodeWithSignature("myFunction()"))
+
+		- Where someContract == the contract we are calling (Delegate in our
+			case), and myFunction == the function we want to call (pwn())
+
+	- Therefore because a delegatecall needs some byte string as its parameter
+
+- Getting the byte string
+	- If we were calling a delegatecall within our own contract, the syntax
+		would look like:
+
+		Delegate.delegatecall(abi.encodeWithSignature("pwn()"))
+
+		- abi.encodeWithSignature("pwn()") is just some byte string representing
+			"pwn()". Which means we can print out the string in some simple contract
+			and shove it in the "data" field of sendTransaction()
+
+	- Helper contract
+		- Full source code can be found in : "contracts/6_delegation.sol"
+		- Our helper contract is just a "script" that will print a string
+		- Output returns "0xdd365b8b"
+
+- Sending out final payload
+	- await contract.sendTransaction("0xdd365b8b")
+	- contact.sendTransaction() will trigger the fallback function
+	- The string of bytes is equal to an encoded string of "pwn()"
+	- This hits the fallback and calls pwn() in Delegate with our address as
+		msg.sender

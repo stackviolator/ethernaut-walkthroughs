@@ -1,0 +1,40 @@
+------------------
+GLOSSARY
+------------------
+
+How to play - generally each level spawns its own instance of the challenge
+and will validate success once the player completes some goal on the
+blockchain. To win the level the player must successfully "submit the
+instance" which will be validated on the end of ethernaut. To start, see
+0_hello_ethernaut.
+
+Metamask - crypto wallet used to interact with the ethereum blockchain
+
+Ether - currency or token traded on the ethereum blockchain
+
+Eth - shorthand for ethereum
+
+Wei/Gwei - Denominations of ETH, 1 wei = 1e9 gwei = 1 eth
+
+Rinkeby / Rostopen - test networks used as a "playground" for ethereum
+transactions. No real monetary value is tied in
+
+ABI - Communication layer between Solidity and js
+
+Bytecode - low level machine code that is executed by the EVM
+
+EVM - Ethereum virtual machine, a computation engine that acts as a
+decentralized computer blah blah blah. The thing that allows you to actually
+connect to the blockchain. Where code is ran to make transactions or execute
+smart contracts, etc.
+
+Smart contracts - a program stored on the blockchain that run whenever some
+condition is met
+
+EOA - Externally Owned Account, an account with a private key ex. account made with metamask
+
+Contract account - An account with smart contract code in it, alternative to EOA
+
+TODO Integer Underflow -
+
+TODO OOG

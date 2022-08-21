@@ -1,0 +1,154 @@
+------------------
+NOTES
+------------------
+
+LEVEL 13: Gatekeeper One
+------------------
+This level was not fun
+
+There is no vulnerability, just a series of checks you have to pass. I didnt
+like it.
+
+Casting in Solidity
+- Casting uints
+- Remember, uintX corresponds to X bits
+- The examples show hex numbers which are not in base10
+- There are 4 bits per "digit" and 8 bits per byte of a hex number
+	- Higher to lower costs the highest order bytes (left side)
+
+		uint32 a = 0x12345678;
+		uint16 b = uint16(a); // b = 0x5678
+
+	- Lower to higher, padds with higher order bytess (left side)
+
+		uint16 a = 0x1234;
+		uint32 b = uint32(a); // b = 0x00001234
+
+Gate one:
+- Same "vuln" as level 4. To ensure msg.sender != tx.origin, call the function
+	from a rogue contract of your own.
+
+Gate two:
+- This gate is very dumb and i did not have fun doing it and it make me angry
+- The requirement here is to have your current gas left % 8191 (why) == 0, at the point in the
+	program where the check is make
+	- This is so dumb + annoying
+- Here is the information that will make this challenge somewhat bearable
+	- If you aren't familiar with a % (mod) operation, the output will be the
+		remainder of a division problem
+		- Ex.
+			- 10 / 3 = 3 remainder 3
+			- 10 % 3 = 3
+			- 25 / 4 = 6 remainder 1
+			- 25 % 4 = 1
+			- 100 / 10 = 0
+			- 100 % 10 = 0
+	- Gas is calculated differently with different solidity compiler versions
+		- Meaning the same code with a different compiler will have different
+			amounts of gas
+	- Gas offsets are typically around 210
+- The best are most reliable way to solve this problem is to brute force the
+	amount of gas, by repeatedly making requests to the GatekeeperOne.enter()
+	function with a different gas amount, hoping one will be the exact right
+	number
+	- When brute forcing a solution is the answer, something isn't right
+- See source code
+
+Gate three:
+- There is a series of castings done on an inputted bytes8 object. They are as
+	follows:
+
+	 	require(uint32(uint64(_gateKey)) == uint16(uint64(_gateKey)), "GatekeeperOne: invalid gateThree part one");
+  	require(uint32(uint64(_gateKey)) != uint64(_gateKey), "GatekeeperOne: invalid gateThree part two");
+		require(uint32(uint64(_gateKey)) == uint16(tx.origin), "GatekeeperOne: invalid gateThree part three");
+
+		- We will break each of these down step by step
+		- For reference, _gateKey is a bytes8 object, bytes8 and uint64 have no
+			change or loss when converting
+		- First check
+
+	 		require(uint32(uint64(_gateKey)) == uint16(uint64(_gateKey)), "GatekeeperOne: invalid gateThree part one");
+
+			- Left side of the ==
+				- When a uint64 is cast to a uint32, the number will chop off the 8
+					highest bytes of the value
+					- Ex. 0x1122334455667788 -> 0x55667788
+			- Right side of the ==
+				- The when a uint64 is cast to a uint 16, the number will chop off
+					the first 12 bytes
+					- Ex. 0x1122334455667788 -> 0x7788
+			- We can see that each sides of the == create different sizes of the
+				original bytes8 object
+			- Some how we need to make a 4 byte long object (left side of ==) equal
+				the same values as a two byte long object (right side of ==)
+				- In hex, 0x1 and 0x000000000000000000000000000000000001 have the same
+					value of decimal 1
+				- Therefore if we pad all but the last two bytes with zeros, we will
+					have a hex number that is equal if it is 4 bytes long or two bytes
+					long
+					- This still might not make sense, but think about it this way
+					- These two numbers will hold the same value, 0x00001234 == 0x1234
+						- Therefore if the original bytes8 parameter is 0xNNNNNNNN00001234
+							(disregard the N's for now since to our knowledge, those can be
+							anything) when it is compress to a uint32 object it will become
+							0x00001234 and when it is compressed to a uint16 object, it will
+							become 0x1234
+
+		- Second check
+
+ 	 		require(uint32(uint64(_gateKey)) != uint64(_gateKey), "GatekeeperOne: invalid gateThree part two");
+
+			- Left side of the !=
+				- Chop off 8 highest bytes, like in the last check
+					- 0x1122334455667788 -> 0x55667788
+			- Right side of the !=
+				- No change, full 8 bytes long
+					- 0x1122334455667788
+
+			- This != check is saying that the shortened uint32 object CANNOT equal
+				the full uint64 object
+			- As we just discussed, the method of making different sized ints (or
+				bytes) equal is using zeros
+			- Therefore, if any or all of the first 4 bytes are not 0, this check
+				will pass
+				- Rules we've established:
+					- 1) bytes 5-6 must be 00
+					- 2) bytes 7-8 need numbers
+					- 3) Any (or all) of the first four bytes need to be an integer above 0
+				- Lets take a look at the string we have to far and check it against
+					our rules
+					- 0xNNNNNNNN00001234
+					- So far we have covered rules 1+2
+					- To satisfy rule 3, all we need to do is make sure that any of the
+						N's are changed to any integer 1-9 or even A-F
+
+
+		- Third check
+
+			require(uint32(uint64(_gateKey)) == uint16(tx.origin), "GatekeeperOne: invalid gateThree part three");
+
+			- Left side of ==
+				- Same as before, lop off the 4 left most bytes
+					- 0x1122334455667788 -> 0x55667788
+			- Right side of ==
+				- The address of tx.orgin, shoved into a uint16 (2 byte) object
+					- 0x1122334455667788 -> 0x7788
+			- Now we get our information of what the _gateKey has to be derived from
+				- This line is stating that the last 4 bytes of _gateKey MUST equal
+					the last two bytes of tx.origin
+					- Remember from step one when we figured our 0x00001234 was the
+						desired set up?
+					- Replace "1234" with the last 4 digits of whatever tx.origin is
+						going to (hint: its your metamask wallet address)
+
+	- Since gate three was quite an information dump, here is the TL;DR
+		- 0x111111110000XXXX, X's  = last digits of your metamask address
+
+Exploitation
+- you know where the source code for this contract is by now
+	- Specific comments are added to the contract to give extra guidance and
+		pointers
+- Once you figure out the tricks to this level, exploitation is fairly easy
+- Create the malicious contract to call enter from
+- Create a valid _gateKey using the formula above
+- Create a for loop to brute force the gas amoutn

@@ -1,0 +1,19 @@
+------------------
+NOTES
+------------------
+
+LEVEL 0: HELLO
+------------------
+USE CHROME
+	as of writing this (7/5/2022) there is an compatibility issue between
+	metamask + firefox + ethernaut
+
+	If you are an intern (L) you will need to download google-chrome instead of
+	the built in chromium browsers
+
+		sudo emerge -a google-chrome
+
+Set up metamask and select the RINKEBY network (not Rostopen)
+
+ABI - Communication layer between Solidity and js
+Bytecode - low level machine code that is executed by the EVM

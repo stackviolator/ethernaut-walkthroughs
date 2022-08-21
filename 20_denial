@@ -1,0 +1,31 @@
+------------------
+NOTES
+------------------
+
+LEVEL 18: Denial
+------------------
+
+Vulnerability - Out of gas (OOG)
+- In this challenge, the goal is to deny the owner of the contract their share
+	of withdraw money
+- We can't just revert the function, because the contract makes a low level
+	call and ignores the returned value, meaning even if the call in reverted,
+	the contract will keep executing
+- However, if the contract runs out of gas on when making the call, the
+	transaction will error out with an OOG before being able to pay the owner
+- There are two methods of doing this
+	- We can either create an infinite loop that will burn through all the gas
+		and then error
+	- Or we can use an assert(false)
+		- assert() is a function that when evaluated to false, will deplete all
+			remaining gas
+		- This means that if our fallback function asserts false, the vicitm
+			contract will deplete all the gas of the transaction and kill execution
+			before the owner receives their payment
+
+Exploitation
+- See source code at "/contracts/20_denial.sol"
+- There is not enough content to make this section robust and interesting
+- Basically we are just making a contract with a fallback with assert(false),
+	deploying the contract and using function setWithdrawPartner() to set the
+	partner to our attacking address

@@ -1,0 +1,56 @@
+------------------
+NOTES
+------------------
+
+LEVEL 6: FORCE
+------------------
+
+Vulnerability - Forcing sent ether with selfdestruct()
+- The goal of the level is to increase the balance of the contract to > 0 eth
+- There is no code in the contract, no way to pay or send eth that we have
+	seen
+
+	contract Force {/*
+
+											 MEOW ?
+						 /\_/\   /
+				____/ o o \
+			/~____  =ø= /
+		 (______)__m_m)
+
+		*/}
+
+
+- selfdestruct()
+	- selfdestruct deletes a contract from the blockchain and sends all
+		remaining eth to an account specified as the parameter
+	- goal: create a contract with a small amount of eth and blow it up with
+		selfdestruct() with the address of the level instance as the parameter
+
+Exploitation
+- Full source code is found in "contracts/7_force.sol"
+
+- Create a contract with some ETH
+	- Creating a constructor
+
+		constructor () public payable {
+			}
+
+		- The constructor has a payable keyword allowing us to pass eth into the
+			contract on deployment.
+		- This makes forwarding some eth to the contract much easier
+
+- Call selfdestruct(address)
+	- Creating a public function to call selfdestruct()
+
+	  function attack(address payable _to) public payable {
+			selfdestruct(_to)
+		}
+
+		- attack() takes in an address to send to selfdestruct, and simply calls
+			the selfdestruct method
+
+- Deploy the contract
+	- Compile the contract and allocate some Wei to the "value", roughly 100000
+		will work
+	- Call the attack() function with the address of the instance of the level
